@@ -1,0 +1,12 @@
+**/.venv/
+**/__pycache__/
+**/.ready
+**/config.json
+**/models/
+**/tools/
+**/.env
+validation/*.ts
+validation/*.wav
+validation/Windows test's clips/
+validation/live test/
+validation/producer.py
