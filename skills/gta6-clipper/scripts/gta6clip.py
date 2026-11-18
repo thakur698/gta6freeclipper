@@ -680,6 +680,7 @@ def render_one(rd, info, c, n, cookies, keep, local_src=None, src_start=None):
 
 def cmd_render(a):
     rd = Path(a.run)
+    (rd / "clips").mkdir(exist_ok=True)
     info = json.loads((rd / "stream.json").read_text(encoding="utf-8"))
     t0 = time.time()
     picks, total = select(rd, a.top, a.min_score)

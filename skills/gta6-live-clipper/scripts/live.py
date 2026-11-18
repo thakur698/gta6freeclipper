@@ -94,13 +94,35 @@ class Daemon:
               str(self.seg_dir / "seg_%05d.ts")]
         self.t0_wall = time.time()
         self.save_state(recording=True, started_wall=self.t0_wall)
-        yt = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=open(self.rd / "ytdlp.log", "ab"), **hidden_process())
-        ffp = subprocess.Popen(ff, stdin=yt.stdout, stderr=open(self.rd / "ffmpeg.log", "ab"), **hidden_process())
-        yt.stdout.close()
-        self.procs = [yt, ffp]
-        ffp.wait()
-        yt.wait()
-        self.save_state(recording=False, ended_wall=time.time())
+        self.procs = []
+        try:
+            with (self.rd / "ytdlp.log").open("ab") as ytlog, (self.rd / "ffmpeg.log").open("ab") as fflog:
+                yt = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=ytlog, **hidden_process())
+                self.procs.append(yt)
+                ffp = subprocess.Popen(ff, stdin=yt.stdout, stderr=fflog, **hidden_process())
+                self.procs.append(ffp)
+                yt.stdout.close()
+                ffcode = ffp.wait()
+                # A failed consumer must not leave its downloader running.
+                if ffcode and yt.poll() is None:
+                    yt.terminate()
+                ytcode = yt.wait()
+                if not self.stop and (ffcode or ytcode):
+                    self.save_state(error=f"Recorder failed (yt-dlp={ytcode}, ffmpeg={ffcode}); see ytdlp.log and ffmpeg.log")
+        except Exception as exc:
+            self.save_state(error=f"Recorder startup failed: {exc}")
+        finally:
+            for proc in self.procs:
+                if proc.stdout:
+                    proc.stdout.close()
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+            self.save_state(recording=False, ended_wall=time.time())
 
     # ---- Twitch chat speed (official anonymous read-only chat connection)
     def chat(self):
@@ -373,7 +395,8 @@ def cmd_status(a):
         log(json.dumps({"run": str(rd), "streamer": info.get("streamer"), "recorder_running": alive,
                         "recorded": g.hms(st.get("covered", 0)), "windows": st.get("windows", 0),
                         "windows_waiting_for_picks": [w.name for w in pending_windows(rd)],
-                        "clips": len(rendered), "ended": st.get("ended", False)}, indent=1))
+                        "clips": len(rendered), "ended": st.get("ended", False),
+                        "error": st.get("error")}, indent=1))
 
 
 def cmd_stop(a):
